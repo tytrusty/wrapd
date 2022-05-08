@@ -103,6 +103,7 @@ struct Settings {
     double m_tol;  // -tol <double>  obj. resid. tolerance for early exit (unless a solution is provided for X error comparisons)
     int m_max_admm_iters;  // -it <int>  number of admm solver iterations
     double m_reweighting_delay;
+    double m_timestep;
 
     enum class RotAwareness {
         ENABLED,
@@ -158,6 +159,7 @@ struct Settings {
             m_tol = 1.e-11;
             m_max_admm_iters = 5000;
             m_reweighting_delay = 50;
+            m_timestep = 0.0333;
 
     }
 };

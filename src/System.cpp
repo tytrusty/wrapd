@@ -247,8 +247,11 @@ double System::global_obj_value(const math::MatX3 &x_free) {
 
     const int n_tet_elements = num_tet_elements();
 
+    // x0_free
+    // v_free
+
     if (n_tet_elements > 0) {
-        value += m_tet_elements->global_obj_value(x_free);
+        value += m_tet_elements->global_obj_value(x_free, m_x0_free, m_v_free);
     }
 
     return value;
@@ -264,16 +267,16 @@ double System::global_obj_grad(
     grad = math::MatX3::Zero(m_xfree_rows, 3);
     double value = 0.;
 
-    if (positions_have_changed) {
+    if (positions_have_changed || true) {
 
         if (n_tet_elements > 0) {
             math::MatX3 grad_tets;
-            value += m_tet_elements->global_obj_grad(x_free, grad_tets);
+            value += m_tet_elements->global_obj_grad(x_free, m_x0_free, m_v_free, grad_tets);
             grad += grad_tets;        
         }
 
     } else {
-
+        std::cerr << "Don't do this with dynamics" << std::endl;
         if (n_tet_elements > 0) {
             grad += m_tet_elements->global_obj_grad();       
         }   

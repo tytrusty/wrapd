@@ -192,8 +192,10 @@ class TetElements : public Elements {
     virtual void get_A_triplets(math::Triplets &triplets) final;
     virtual void update_A_coeffs(math::SpMat &A) final;
 
-    virtual double global_obj_value(const math::MatX3 &x_free) final;
-    virtual double global_obj_grad(const math::MatX3 &x_free, math::MatX3 &gradient) final;
+    virtual double global_obj_value(const math::MatX3 &x_free, const math::MatX3 &x0_free,
+        const math::MatX3 &v_free) final;
+    virtual double global_obj_grad(const math::MatX3 &x_free, const math::MatX3 &x0_free,
+        const math::MatX3 &v_free, math::MatX3 &gradient) final;
     math::MatX3 global_obj_grad() const;
 
     virtual void midupdate_weights(const math::MatX3 &X);
@@ -204,6 +206,8 @@ class TetElements : public Elements {
     void update_all_candidate_weights(const std::vector<math::Vec3>& temp_sigmas);
 
     virtual void update_actual_weights() final;
+
+    virtual void initialize_mass_matrices();
 
     const std::vector<math::Vec4i>& inds() const { return m_tet; }
 
@@ -216,6 +220,7 @@ class TetElements : public Elements {
     const ModelSettings& m_model_settings;
 
     std::vector<double> m_volume;
+    std::vector<math::Mat4x4> m_mass_local;
     std::vector<math::Mat3x3> m_edges_inv;
 
     std::vector<math::Mat3x4> m_Di_local;

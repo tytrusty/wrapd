@@ -56,9 +56,9 @@ bool ADMM::initialize(std::shared_ptr<System> sys, const Settings& settings) {
 }
 
 
-void ADMM::solve(math::MatX3& X) {
+void ADMM::solve(math::MatX3& X, math::MatX3& V) {
     m_micro_timer.reset();
-    setup_solve(X);
+    setup_solve(X, V);
     m_algorithm_data->m_runtime.setup_solve_ms += m_micro_timer.elapsed_ms();
 
     if ((m_settings.m_reweighting == Settings::Reweighting::ENABLED)) {
@@ -86,13 +86,15 @@ void ADMM::solve(math::MatX3& X) {
 
 
 
-void ADMM::setup_solve(math::MatX3& X) {
+void ADMM::setup_solve(math::MatX3& X, math::MatX3& V) {
 
     m_algorithm_data->m_curr_x_free = m_algorithm_data->m_S_free.transpose() * X;
     m_algorithm_data->m_soln_x_free = m_algorithm_data->m_S_free.transpose() * m_system->X_soln();
 
     m_system->update_fix_cache(m_algorithm_data->m_curr_x_fix);
     m_system->update_defo_cache(m_algorithm_data->m_curr_x_free);
+    m_system->set_primal(m_algorithm_data->m_curr_x_free,
+        m_algorithm_data->m_S_free.transpose() * V);
     m_system->initialize_dual_vars(X);
     m_algorithm_data->m_prev_x_free = m_algorithm_data->m_curr_x_free;
 

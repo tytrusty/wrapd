@@ -37,7 +37,8 @@ class ModelSettings {
         m_elastic_beta_min(0.1),
         m_elastic_beta_max(10.0),
         m_elastic_prox_ls_method(ProxLSMethod::BacktrackingCubic),
-        m_elastic_prox_iters(20) {
+        m_elastic_prox_iters(20),
+        m_density(1e3) {
     }
 
     enum class ElasticModel {
@@ -82,6 +83,9 @@ class ModelSettings {
     ProxLSMethod elastic_prox_ls_method() const { return m_elastic_prox_ls_method; }
     int elastic_prox_iters() const { return m_elastic_prox_iters; }
 
+    double density() const { return m_density; }
+    void density(double val) { m_density = val; }
+
  private:
     ElasticModel m_elastic_model;
     Lame m_elastic_lame;
@@ -91,7 +95,8 @@ class ModelSettings {
 
     ProxLSMethod m_elastic_prox_ls_method;
     int m_elastic_prox_iters;
-    
+    double m_density; // kg/m^3
+
 };
 }  // namespace wrapd
 

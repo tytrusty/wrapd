@@ -47,6 +47,10 @@ class System {
     inline const math::MatX3 X() const {
         return m_X;
     }
+    
+    inline const math::MatX3 V() const {
+        return m_V;
+    }
 
     inline const math::MatX3& X_soln() const {
         return m_X_soln;
@@ -58,6 +62,10 @@ class System {
 
     inline void X(const math::MatX3& val) {
         m_X = val;
+    }
+
+    inline void V(const math::MatX3& val) {
+        m_V = val;
     }
 
     template<int DIM>
@@ -80,11 +88,13 @@ class System {
         const int prev_n = m_X.rows();
         const int size = prev_n + n_verts;
         m_X.conservativeResize(size, 3);
+        m_V.conservativeResize(size, 3);
         m_X_init.conservativeResize(size, 3);
         m_X_soln.conservativeResize(size, 3);
         for (int i = 0; i < n_verts; ++i) {
             int idx = prev_n + i;
             m_X.row(idx) = X.row(i);
+            m_V.row(idx).setZero();
             m_X_init.row(idx) = X_init.row(i);
             m_X_soln.row(idx) = X_soln.row(i);
         }
@@ -133,6 +143,12 @@ class System {
     void update_defo_cache(const math::MatX3& x_free, bool update_polar_data = true);
 
     void initialize_dual_vars(const math::MatX3 &X);
+    
+    void set_primal(const math::MatX3 &x_free, const math::MatX3 &v_free) {
+        m_x0_free = x_free;
+        m_v_free = v_free;
+    }
+
     void advance_dual_vars();
 
     double total_mass() const;
@@ -165,11 +181,14 @@ class System {
  private:
 
     math::MatX3 m_X;       // node positions, rest (zero-energy) pose
+    math::MatX3 m_V;       // node velocities
     math::MatX3 m_X_init;  // node positions, initial deformation
     math::MatX3 m_X_soln;  // node positions, solution from a previously run sim (if provided)
 
     std::vector<math::Vec4i> m_tet_free_inds;
 
+    math::MatX3 m_x0_free;
+    math::MatX3 m_v_free;
     int m_xfree_rows;
 };
 

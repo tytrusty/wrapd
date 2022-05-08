@@ -39,9 +39,16 @@ void Solver::solve() {
     static int curr_frame = 0;
     
     math::MatX3 X = m_system->X();
-    m_admm.solve(X);
+    math::MatX3 X0 = X;
+    math::MatX3 V = m_system->V();;
+    m_admm.solve(X,V);
     m_system->X(X);
     
+    // Set velocity
+    m_system->V((X - X0) / m_settings.m_timestep);
+    // TODO 0 out dual, reset kappas?
+    std::cout << "V norm: " << m_system->V().norm() << std::endl;
+
     curr_frame += 1;
 }
 

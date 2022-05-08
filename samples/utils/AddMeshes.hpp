@@ -83,6 +83,14 @@ static inline void binding::add_tetmesh(
         added_X_init.row(idx) = init_mesh->vertices[i];
         added_X_soln.row(idx) = soln_mesh->vertices[i];
     }
+    double fac = added_X.maxCoeff();
+    for (int i = 0; i < num_tet_verts; ++i) {
+        int idx = i + prev_tet_verts;
+        rest_mesh->vertices[i] /= fac;
+        init_mesh->vertices[i] /= fac;
+    }
+    added_X.array() /= fac;
+    added_X_init.array() /= fac;
 
     solver->m_system->add_nodes(added_X, added_X_init, added_X_soln);
 

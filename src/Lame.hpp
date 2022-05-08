@@ -35,7 +35,7 @@ namespace wrapd {
 //
 class Lame {
  public:
-    static Lame preset(double poisson) { return Lame(10'000'000, poisson); }
+    static Lame preset(double poisson) { return Lame(3e4, poisson); }
 
     void mu(double val) { m_mu = val; }
     double mu() const { return m_mu; }

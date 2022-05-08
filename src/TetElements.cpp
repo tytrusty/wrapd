@@ -140,6 +140,47 @@ TetElements::TetElements(
         m_last_sigma[e] = math::Vec3::Ones();
 
     }
+    initialize_mass_matrices();
+}
+
+void TetElements::initialize_mass_matrices() {
+    m_mass_local.resize(m_num_elements);
+
+    double rho = m_model_settings.density();
+
+    #pragma omp parallel for
+    for (int e = 0; e < m_num_elements; e++) {
+        double mass = m_volume[e] * rho;
+        double c0 = (1.0/10.0) * mass;
+        double c1 = (1.0/20.0) * mass;
+
+        // Point Indices
+        unsigned int p0 = 0;
+        unsigned int p1 = 1;
+        unsigned int p2 = 2;
+        unsigned int p3 = 3;
+        
+        // Assemble local mass matrix
+        m_mass_local[e](p0,p0) = c0;
+        m_mass_local[e](p0,p1) = c1;
+        m_mass_local[e](p0,p2) = c1;
+        m_mass_local[e](p0,p3) = c1;
+
+        m_mass_local[e](p1,p0) = c1;
+        m_mass_local[e](p1,p1) = c0;
+        m_mass_local[e](p1,p2) = c1;
+        m_mass_local[e](p1,p3) = c1;
+
+        m_mass_local[e](p2,p0) = c1;
+        m_mass_local[e](p2,p1) = c1;
+        m_mass_local[e](p2,p2) = c0;
+        m_mass_local[e](p2,p3) = c1;
+
+        m_mass_local[e](p3,p0) = c1;
+        m_mass_local[e](p3,p1) = c1;
+        m_mass_local[e](p3,p2) = c1;
+        m_mass_local[e](p3,p3) = c0;
+    }
 }
 
 void TetElements::initialize_dual_vars(const math::MatX3& X) {
@@ -487,7 +528,9 @@ void TetElements::get_A_triplets(math::Triplets &triplets) {
             if (m_free_index_tet[e][i] >= 0) {
                 for (int j = 0; j < 4; j++) {
                     if (m_free_index_tet[e][j] >= 0 && m_free_index_tet[e][i] <= m_free_index_tet[e][j]) {
-                        triplets.emplace_back(math::Triplet(m_free_index_tet[e][i], m_free_index_tet[e][j], m_weight_squared[e] * m_Dt_D_local[e](i, j)));
+                        triplets.emplace_back(math::Triplet(m_free_index_tet[e][i], m_free_index_tet[e][j],
+                            m_mass_local[e](i,j)/m_settings.m_timestep/m_settings.m_timestep
+                            + m_weight_squared[e] * m_Dt_D_local[e](i, j)));
                     }
                 }
             }
@@ -675,20 +718,52 @@ double TetElements::polar_potential_energy() const {
 }
 
 
-double TetElements::global_obj_value(const math::MatX3 &x_free) {
+double TetElements::global_obj_value(const math::MatX3 &x_free,const math::MatX3 &x0_free,
+        const math::MatX3 &v_free) {
     update_defo_cache(x_free);
     double val = 0.;
     #pragma omp parallel for reduction ( + : val )
     for (int e = 0; e < m_num_elements; e++) {
         math::Mat3x3 P = (m_Zi[e] - m_Ui[e]).transpose();
         val += (0.5 * m_weight_squared[e]) * (m_cached_symF[e] - P).squaredNorm();
+
+        // Inertial gradient and energy contributions
+        // ih2 * M * (x - (xt + h*vt + h^2 ext))
+        double h = m_settings.m_timestep;
+        double ih2 = 1.0 / h / h;
+
+        math::Mat4x3 diff;
+        math::Mat4x3 grad;
+        grad.setZero();
+        diff.setZero();
+
+        for (int i = 0; i < 4; ++i) {
+            int id1 = m_free_index_tet[e][i];
+            if (id1 == -1) continue;
+
+            math::Mat1x3 x = x_free.row(id1);
+            math::Mat1x3 x0 = x0_free.row(id1);
+            math::Mat1x3 v = v_free.row(id1);
+            math::Mat1x3 ext(0.0, -9.8, 0);
+            diff.row(i) = (x - (x0 + h*v + h*h*ext));
+
+            for(int j = 0; j < 4; ++j) {
+                int id2 = m_free_index_tet[e][j];
+                if (id2 == -1) continue;
+                grad.row(j) += ih2 * m_mass_local[e](j,i) * diff.row(i);
+            }
+        }
+        //std::cout << "M VAL: " << 0.5 * (grad.array()*diff.array()).sum() << std::endl;
+        val +=  0.5 * (grad.array()*diff.array()).sum();
+
     }
 
     return val;    
 }
 
 
-double TetElements::global_obj_grad(const math::MatX3 &x_free, math::MatX3 &gradient) {
+double TetElements::global_obj_grad(const math::MatX3 &x_free, const math::MatX3 &x0_free,
+        const math::MatX3 &v_free, math::MatX3 &gradient) {
 
     update_defo_cache(x_free);
 
@@ -725,7 +800,43 @@ double TetElements::global_obj_grad(const math::MatX3 &x_free, math::MatX3 &grad
                 }
             }
 
-            val += (0.5 * m_weight_squared[e]) * (m_cached_symF[e] - P).squaredNorm();
+            // Inertial gradient and energy contributions
+            // ih2 * M * (x - (xt + h*vt + h^2 ext))
+            double h = m_settings.m_timestep;
+            double ih2 = 1.0 / h / h;
+
+            math::Mat4x3 diff;
+            math::Mat4x3 grad;
+            grad.setZero();
+            diff.setZero();
+
+            for (int i = 0; i < 4; ++i) {
+                int id1 = m_free_index_tet[e][i];
+                if (id1 == -1) continue;
+
+                math::Mat1x3 x = x_free.row(id1);
+                math::Mat1x3 x0 = x0_free.row(id1);
+                math::Mat1x3 v = v_free.row(id1);
+                math::Mat1x3 ext(0.0, -9.8, 0);
+                diff.row(i) = (x - (x0 + h*v + h*h*ext));
+
+                for(int j = 0; j < 4; ++j) {
+                    int id2 = m_free_index_tet[e][j];
+                    if (id2 == -1) continue;
+                    grad.row(j) += ih2 * m_mass_local[e](j,i) * diff.row(i);
+                }
+            }
+            
+            double E_m = 0.5 * (grad.array()*diff.array()).sum();
+
+            for (int ii = 0; ii < 4; ++ii) {
+                int idx = m_free_index_tet[e][ii];
+                if (idx != -1) {
+                    gradient_th.row(idx) += grad.row(ii);
+                }
+            }
+
+            val += (0.5 * m_weight_squared[e]) * (m_cached_symF[e] - P).squaredNorm() + E_m;
         }
 
         #pragma omp critical

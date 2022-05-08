@@ -42,12 +42,12 @@ class ADMM {
 
     bool initialize(std::shared_ptr<System> system, const Settings& settings);
 
-    void solve(math::MatX3& X);
+    void solve(math::MatX3& X, math::MatX3& V);
 
     AlgorithmData* algorithm_data() { return m_algorithm_data.get(); }
 
  private:
-    void setup_solve(math::MatX3& x);
+    void setup_solve(math::MatX3& x,  math::MatX3& v);
     void iterate();
     bool converged();
     void finish_solve(math::MatX3& x);
