@@ -24,6 +24,9 @@
 #include "MeshIO.hpp"
 #include "DataLog.hpp"
 
+// ./build/dynamics -rest samples/data/bunny/coarse_bunny.node -init samples/data/bunny/coarse_bunny.node -handles samples/data/bunny/bunny_handles.txt -model snh -global_ls 1
+
+
 std::vector<int> pins;
 
 DataLog objectives_log("objectives");
@@ -86,6 +89,8 @@ int main(int argc, char **argv) {
         rest_mesh->flags |= binding::ARAP;
     } else if (settings.m_model_settings.elastic_model() == wrapd::ModelSettings::ElasticModel::NH) {
         rest_mesh->flags |= binding::NH;
+    } else if (settings.m_model_settings.elastic_model() == wrapd::ModelSettings::ElasticModel::SNH) {
+        rest_mesh->flags |= binding::SNH;
     } else {
         throw std::runtime_error("Error: Invalid elastic");
     }
@@ -115,13 +120,7 @@ int main(int argc, char **argv) {
             for (size_t i = 0; i < accumulated_time_s.size(); i++) {
                 accumulated_time_s_log.addPoint(i, accumulated_time_s[i]);
             }
-            
-            std::string prefix = "";
-            std::string extension = ".txt";
-            objectives_log.write(outdir_ss.str(), prefix, extension);
-            x_errors_log.write(outdir_ss.str(), prefix, extension);
-            reweighted_log.write(outdir_ss.str(), prefix, extension);
-            accumulated_time_s_log.write(outdir_ss.str(), prefix, extension);
+
         }
 
         // Saving the final tet mesh
@@ -143,6 +142,15 @@ int main(int argc, char **argv) {
             std::setfill('0') << std::setw(3) << i << ".obj";
         mcl::meshio::save_obj(final_mesh_obj.get(), final_mesh_obj_file.str());
     }
+                
+    std::stringstream outdir_ss;
+    outdir_ss << WRAPD_OUTPUT_DIR << "/";            
+    std::string prefix = "";
+    std::string extension = ".txt";
+    objectives_log.write(outdir_ss.str(), prefix, extension);
+    x_errors_log.write(outdir_ss.str(), prefix, extension);
+    reweighted_log.write(outdir_ss.str(), prefix, extension);
+    accumulated_time_s_log.write(outdir_ss.str(), prefix, extension);
     return EXIT_SUCCESS;
 }
 

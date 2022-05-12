@@ -160,6 +160,10 @@ bool Settings::parse_args(int argc, char **argv ) {
             double poisson;
             val >> poisson;
             m_model_settings.poisson(poisson);
+        } else if (arg == "-ym") {
+            double ym;
+            val >> ym;
+            m_model_settings.ym(ym);
         } else {
             throw std::runtime_error("Error: Unrecognized command-line argument: " + arg);
         }
@@ -189,6 +193,7 @@ void Settings::help() {
         " -tol: tolerance for ADMM early exit                        [Default: 1.e-11]  (any small float > 0) \n" <<
         " -model: constitutive model for elasticity                  [Default: nh]      (nh=Neo-Hookean, arap=ARAP) \n" <<
         " -poisson: Poisson's ratio (NH model only)                  [Default: 0.45]    (any float in the range [0, 0.5)) \n" <<
+        " -ym: Young's modulus                                       [Default: 1e6]                          \n" <<
         " -beta_static: weight^2 mult (no reweighting)               [Default: 1.0]     (any float >= 1.0) \n" <<
         "\n" <<
         " Rotation awareness: \n" <<

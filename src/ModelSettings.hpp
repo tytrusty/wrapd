@@ -32,7 +32,7 @@ class ModelSettings {
  public:
     ModelSettings() :
         m_elastic_model(ElasticModel::NH),
-        m_elastic_lame(Lame::preset(0.45)),
+        m_elastic_lame(Lame::preset(1e6, 0.45)),
         m_elastic_beta_static(1.0),
         m_elastic_beta_min(0.1),
         m_elastic_beta_max(10.0),
@@ -44,6 +44,7 @@ class ModelSettings {
     enum class ElasticModel {
         ARAP,
         NH,
+        SNH,
     };
 
     enum class ProxLSMethod {
@@ -60,13 +61,19 @@ class ModelSettings {
             m_elastic_model = ElasticModel::ARAP;
         } else if (val == "nh") {
             m_elastic_model = ElasticModel::NH;
+        } else if (val == "snh") {
+            m_elastic_model = ElasticModel::SNH;
         } else {
             throw std::runtime_error("Error: Invalid input for -elastic_model");
         }
     }
 
     void poisson(double val) {
-        m_elastic_lame = Lame::preset(val);
+        m_elastic_lame.poisson(val);
+    }
+
+    void ym(double val) {
+        m_elastic_lame.ym(val);
     }
 
     const Lame& elastic_lame() const { return m_elastic_lame; }

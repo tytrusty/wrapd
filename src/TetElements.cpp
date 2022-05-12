@@ -82,6 +82,9 @@ TetElements::TetElements(
         k = 1.;
     } else if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::NH) {
         k = 2.0066 * m_model_settings.elastic_lame().mu() + 1.0122 * m_model_settings.elastic_lame().lambda();
+    } else if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::SNH) {
+        k = 2.0066 * m_model_settings.elastic_lame().mu() + 1.0122 * m_model_settings.elastic_lame().lambda();
+
     } else {
         throw std::runtime_error("Error: Unsupported elastic model in TetElements constructor.");
     }
@@ -285,6 +288,41 @@ void TetElements::update(bool update_candidate_weights) {
                 m_Zi[e] = Ft;
             }
         }
+    } else if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::SNH) {
+
+        #pragma omp parallel
+        {
+            mcl::optlib::LBFGS<double, 3> solver; // Seems to be faster than Newton, but either should work
+            solver.m_settings.ls_method = m_elastic_prox_ls_method;
+            solver.m_settings.max_iters = m_model_settings.elastic_prox_iters();
+            SNHProx problem;
+            problem.set_lame(m_model_settings.elastic_lame());
+            
+            #pragma omp for
+            for (int e = 0; e < m_num_elements; e++) {
+                math::Mat3x3 Di_x = m_cached_F[e].transpose();
+                math::Mat3x3 Ft = Di_x + m_Ui[e];
+
+                math::Mat3x3 F = Ft.transpose();
+                math::Vec3 sigma;
+                math::Mat3x3 U;
+                math::Mat3x3 V;
+                math::svd(F, sigma, U, V, true);
+                
+                problem.set_x0(sigma);
+                problem.set_wsq_over_volume(m_weight_squared[e] / m_volume[e]);
+                sigma = m_last_sigma[e];
+                // sigma = math::Vec3::Ones();
+                solver.minimize(problem, sigma);
+                m_last_sigma[e] = sigma;
+                temp_sigmas[e] = sigma;
+
+                Ft.noalias() = V * sigma.asDiagonal() * U.transpose();
+
+                m_Ui[e] += (Di_x - Ft);
+                m_Zi[e] = Ft;
+            }
+        }
     } else {
         throw std::runtime_error("Error: Invalid model in TetElements::update");
     }
@@ -342,8 +380,8 @@ double TetElements::polar_update(bool update_candidate_weights) {
 
         #pragma omp parallel
         {
-            // mcl::optlib::Newton<double, 3> solver;
-            mcl::optlib::LBFGS<double, 3> solver;  // Seems to be faster than Newton, but either should work
+            mcl::optlib::Newton<double, 3> solver;
+            //mcl::optlib::LBFGS<double, 3> solver;  // Seems to be faster than Newton, but either should work
             solver.m_settings.ls_method = m_elastic_prox_ls_method;
             solver.m_settings.max_iters = m_model_settings.elastic_prox_iters();
             NHProx problem;
@@ -376,6 +414,54 @@ double TetElements::polar_update(bool update_candidate_weights) {
                 }
                 m_curr_pe += m_volume[e] * val;
 
+            }
+        }
+
+        #pragma omp parallel for reduction( + : aft_penalty)
+        for (int e = 0; e < m_num_elements; e++) {
+            aft_penalty += 0.5 * m_weight_squared[e] * (m_cached_symF[e] - (S_inout[e] - m_Ui[e])).squaredNorm();
+            m_Zi[e] = S_inout[e];
+            m_Ui[e] += m_cached_symF[e] - S_inout[e];
+        }
+    } else if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::SNH) {
+
+        std::vector<math::Mat3x3> S_inout(m_num_elements);
+        #pragma omp parallel for reduction ( + : bef_penalty)
+        for (int e = 0; e < m_num_elements; e++) {
+            S_inout[e] = (m_cached_symF[e] + m_Ui[e]).transpose();
+            bef_penalty += 0.5 * m_weight_squared[e] * (m_cached_symF[e] - (m_Zi[e] - m_Ui[e])).squaredNorm();
+        }
+
+        // NH Specific
+        std::vector<math::Vec3> sigma(m_num_elements);
+        std::vector<math::Mat3x3> U(m_num_elements);
+        std::vector<math::Mat3x3> V(m_num_elements);
+        math::svd(S_inout, sigma, U, V);
+
+        #pragma omp parallel
+        {
+            mcl::optlib::Newton<double, 3> solver;
+            //mcl::optlib::LBFGS<double, 3> solver;  // Seems to be faster than Newton, but either should work
+            solver.m_settings.ls_method = m_elastic_prox_ls_method;
+            solver.m_settings.max_iters = m_model_settings.elastic_prox_iters();
+            SNHProx problem;
+            problem.set_lame(m_model_settings.elastic_lame());
+
+            #pragma omp for reduction ( + : m_curr_pe)
+            for (int e = 0; e < m_num_elements; e++) {
+                problem.set_x0(sigma[e]);
+                problem.set_wsq_over_volume(m_weight_squared[e] / m_volume[e]);
+                sigma[e] = m_last_sigma[e];
+                // sigma[e] = math::Vec3::Ones();
+                solver.minimize(problem, sigma[e]);
+                m_last_sigma[e] = sigma[e];
+                temp_sigmas[e] = sigma[e];
+                if (sigma[e][0] < 0. || sigma[e][1] < 0. || sigma[e][2] < 0.) {
+                    printf("Negative singular value in solution. svals: %f %f %f:\n", sigma[e][0], sigma[e][1], sigma[e][2]);                    
+                    exit(0);
+                }
+                S_inout[e].noalias() = V[e] * sigma[e].asDiagonal() * U[e].transpose();
+                m_curr_pe += m_volume[e] * problem.energy_density(sigma[e]);
             }
         }
 
@@ -431,14 +517,27 @@ void TetElements::midupdate_weights() {
 
 void TetElements::update_all_candidate_weights(const std::vector<math::Vec3>& temp_sigmas) {
 
-    if (m_model_settings.elastic_model() != ModelSettings::ElasticModel::NH) {
+    if (m_model_settings.elastic_model() != ModelSettings::ElasticModel::NH &&
+        m_model_settings.elastic_model() != ModelSettings::ElasticModel::SNH) {
         throw std::runtime_error("Error: Adaptive weights are only supported for the NH model.");
     }
 
     if (m_settings.m_reweighting == Settings::Reweighting::ENABLED) {
         
         // double wsq_rest = 2.0 * m_model_settings.elastic_lame().mu() + m_model_settings.elastic_lame().lambda();
-        double wsq_rest = 2.0066 * m_model_settings.elastic_lame().mu() + 1.0122 * m_model_settings.elastic_lame().lambda();
+        double wsq_rest;
+
+
+        std::shared_ptr<Prox> problem;
+        if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::NH) {
+            problem = std::make_shared<NHProx>();
+            wsq_rest = 2.0066 * m_model_settings.elastic_lame().mu() + 1.0122 * m_model_settings.elastic_lame().lambda();
+        } else {
+            wsq_rest = 2 * m_model_settings.elastic_lame().mu() + 1* m_model_settings.elastic_lame().lambda();
+            wsq_rest = 2.0066 * m_model_settings.elastic_lame().mu() + 1.0122 * m_model_settings.elastic_lame().lambda();
+
+            problem = std::make_shared<SNHProx>();
+        }
         double wsq_min = wsq_rest * m_model_settings.elastic_beta_min();
         double wsq_max = wsq_rest * m_model_settings.elastic_beta_max();
 
@@ -446,13 +545,12 @@ void TetElements::update_all_candidate_weights(const std::vector<math::Vec3>& te
         if (count > m_settings.m_reweighting_delay) {
             #pragma omp parallel
             {
-                NHProx problem;
-                problem.set_lame(m_model_settings.elastic_lame());
+                problem->set_lame(m_model_settings.elastic_lame());
                 math::Mat3x3 K;
 
                 #pragma omp for
                 for (int e = 0; e < m_num_elements; e++) {
-                    problem.hessian_density(temp_sigmas[e], K);
+                    problem->hessian_density(temp_sigmas[e], K);
 
                     double Kvalmax = K.eigenvalues().real().maxCoeff();
                     double cand_stiffness = math::clamp(wsq_min, Kvalmax, wsq_max);
@@ -672,6 +770,17 @@ double TetElements::potential_energy_x() const {
             pe += m_volume[e] * val;
         }
         return pe;
+    } else if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::SNH) {
+
+        SNHProx problem;
+        problem.set_lame(m_model_settings.elastic_lame());
+
+        #pragma omp parallel for reduction ( + : pe)
+        for (int e = 0; e < m_num_elements; e++) {
+            math::Vec3 sigma = m_cached_svdsigma[e];
+            pe += m_volume[e] * problem.energy_density(sigma);
+        }
+        return pe;
     } else {
         throw std::runtime_error("Error: Invalid elastic model in potential_energy_x");
     }
@@ -709,6 +818,20 @@ double TetElements::polar_potential_energy() const {
                 val += -mu*fJ + 0.5*lambda*fJ*fJ;
             }
             pe += m_volume[e] * val;
+        }
+    } else if (m_model_settings.elastic_model() == ModelSettings::ElasticModel::SNH) {
+        
+        SNHProx problem;
+        problem.set_lame(m_model_settings.elastic_lame());
+
+        #pragma omp parallel for reduction ( + : pe)
+        for (int e = 0; e < m_num_elements; e++) {
+            math::Mat3x3 S = m_Zi[e].transpose();
+            math::Vec3 sigma;
+            math::Mat3x3 U;
+            math::Mat3x3 V;
+            math::svd(S, sigma, U, V, true);             
+            pe += m_volume[e] * problem.energy_density(sigma);
         }
     } else {
         throw std::runtime_error("Error: Invalid model in polar_potential_energy");

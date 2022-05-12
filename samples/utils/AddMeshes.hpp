@@ -50,6 +50,7 @@ namespace binding {
     enum MeshFlags {
         ARAP = 1 << 1,  // default when mesh->flags==0
         NH = 1 << 2,
+        SNH = 1 << 3,
     };
 }  // namespace binding
 
@@ -91,6 +92,7 @@ static inline void binding::add_tetmesh(
     }
     added_X.array() /= fac;
     added_X_init.array() /= fac;
+    std::cout << "ADDED X\n" << added_X << std::endl;
 
     solver->m_system->add_nodes(added_X, added_X_init, added_X_soln);
 

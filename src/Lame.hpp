@@ -35,7 +35,20 @@ namespace wrapd {
 //
 class Lame {
  public:
-    static Lame preset(double poisson) { return Lame(3e4, poisson); }
+    static Lame preset(double ym, double pr) { return Lame(ym, pr); }
+
+    void poisson(double v) {
+        m_v = v;
+        m_mu = (m_k / (2.0 * (1.0 + m_v)));
+        m_lambda =m_k * m_v / ((1.0 + m_v) * (1.0 - 2.0 * m_v));
+    }
+
+    void ym(double k) {
+        m_k = k;
+        m_mu = (m_k / (2.0 * (1.0 + m_v)));
+        m_lambda =m_k * m_v / ((1.0 + m_v) * (1.0 - 2.0 * m_v));
+    }
+
 
     void mu(double val) { m_mu = val; }
     double mu() const { return m_mu; }
@@ -48,13 +61,17 @@ class Lame {
     // k: Youngs (Pa), measure of stretch
     // v: Poisson, measure of incompressibility
     Lame(double k, double v) :
+        m_k(k), m_v(v),
         m_mu(k / (2.0 * (1.0 + v))),
         m_lambda(k * v / ((1.0 + v) * (1.0 - 2.0 * v))) {
     }
 
  private:
+    double m_k;
+    double m_v;
     double m_mu;
     double m_lambda;
+
 };
 
 }  // namespace wrapd

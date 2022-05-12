@@ -41,6 +41,9 @@ class Prox : public mcl::optlib::Problem<double, 3> {
         return ( grad.norm() < 1e-8 || (x0-x1).norm() < 1e-8 );
     }
     virtual double physical_value(const math::Vec3 &F) = 0;
+    virtual void hessian_density(const math::Vec3 &x, math::Mat3x3 &hess) = 0;
+    virtual void set_lame(const Lame &lame) = 0;
+
 };
 
 
@@ -161,6 +164,91 @@ class NHProx : public Prox {
     math::Vec3 m_x0;
 };
 
+//Stable Neo-Hookean model
+class SNHProx : public Prox {
+ public:
+    void set_lame(const Lame &lame) {
+        m_mu = lame.mu();
+        m_lambda = lame.lambda();
+    }
+
+    void set_x0(const math::Vec3 x0) { m_x0 = x0; }
+    void set_wsq_over_volume(double wsq_over_volume) { m_wsq_over_volume = wsq_over_volume; }
+
+    double energy_density(const math::Vec3 &x) const {
+        double sval1 = x(0);
+        double sval2 = x(1);
+        double sval3 = x(2);
+        double mu = m_mu;
+        double la = m_lambda;
+        return (la*pow(sval1*sval2*sval3-1.0,2.0))/2.0
+                +(mu*(sval1*sval1+sval2*sval2+sval3*sval3-3.0))
+                /2.0-mu*(sval1*sval2*sval3-1.0);
+    }
+
+    double physical_value(const math::Vec3 &x) {
+        if (x[0] < 0. || x[1] < 0. || x[2] < 0.) {
+            return 1.e15;
+        }
+        double e = energy_density(x) - energy_density(math::Vec3::Ones());
+        return e;
+    }
+
+    double value(const math::Vec3 &x) {
+        double t1 = energy_density(x);
+        double t2 = (m_wsq_over_volume * 0.5) * (x - m_x0).squaredNorm();  // quad penalty
+        return t1 + t2;
+    }
+
+    double gradient(const math::Vec3 &x, math::Vec3 &grad) {
+        double sval1 = x(0);
+        double sval2 = x(1);
+        double sval3 = x(2);
+        double mu = m_mu;
+        double la = m_lambda;
+        grad(0)= mu*sval1-mu*sval2*sval3+la*sval2*sval3*(sval1*sval2*sval3-1.0);
+        grad(1) = mu*sval2-mu*sval1*sval3+la*sval1*sval3*(sval1*sval2*sval3-1.0);
+        grad(2) = mu*sval3-mu*sval1*sval2+la*sval1*sval2*(sval1*sval2*sval3-1.0);
+        grad += m_wsq_over_volume * (x - m_x0);
+
+        return value(x);
+    }
+
+    void hessian_density(const math::Vec3 &x, math::Mat3x3 &H) {
+        double sval1 = x(0);
+        double sval2 = x(1);
+        double sval3 = x(2);
+        double mu = m_mu;
+        double la = m_lambda;
+        H(0,0) = mu+la*(sval2*sval2)*(sval3*sval3);
+        H(0,1) = -sval3*(la+mu-la*sval1*sval2*sval3*2.0);
+        H(0,2) = -sval2*(la+mu-la*sval1*sval2*sval3*2.0);
+        H(1,0) = -sval3*(la+mu-la*sval1*sval2*sval3*2.0);
+        H(1,1) = mu+la*(sval1*sval1)*(sval3*sval3);
+        H(1,2) = -sval1*(la+mu-la*sval1*sval2*sval3*2.0);
+        H(2,0) = -sval2*(la+mu-la*sval1*sval2*sval3*2.0);
+        H(2,1) = -sval1*(la+mu-la*sval1*sval2*sval3*2.0);
+        H(2,2) = mu+la*(sval1*sval1)*(sval2*sval2);
+        math::makePD(H);
+    }
+
+    void hessian(const math::Vec3 &x, math::Mat3x3 &hess) {
+        hessian_density(x, hess);
+        hess += m_wsq_over_volume * math::Mat3x3::Identity();
+    }
+
+    double physical_stiffness() const { return m_k; }
+    double mu() const { return m_mu; }
+    double lambda() const { return m_lambda; }
+
+ private:
+    double m_mu;
+    double m_lambda;
+    double m_k;
+    double m_wsq_over_volume;
+    math::Vec3 m_x0;
+
+};
 
 class TetElements : public Elements {
  public:
